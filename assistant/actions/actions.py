@@ -70,7 +70,12 @@ class ActionSessionStart(Action):
 
         # any slots that should be carried over should come after the
         # `session_started` event
-        newEvents = await self.fetch_slots(tracker)
+        try:
+            newEvents = await self.fetch_slots(tracker)
+        except Exception as e:
+            logger.exception("The following exception occurred: %s", str(e))
+            dispatcher.utter_message("Due to technical difficulties we are unable to service your request now. Sorry for the inconvenience")
+            return events
         events.extend(newEvents)
 
         # an `action_listen` should be added at the end as a user message follows
@@ -97,21 +102,27 @@ class IncidentStatus(Action):
         if user_profile.get("id") == anonymous_profile.get("id"):
             message = "Since you are anonymous, I can't realy tell your incident status :)"
         else:
-            incident_states = snow.states_db()
-            incidents_result = await snow.retrieve_incidents(user_profile)
-            incidents = incidents_result.get("incidents")
-            if incidents:
-                message = "\n".join(
-                    [
-                        f'Incident {i.get("number")}: '
-                        f'"{i.get("short_description")}", '
-                        f'opened on {i.get("opened_at")} '
-                        f'{incident_states.get(i.get("incident_state"))}'
-                        for i in incidents
-                    ]
+            try:
+                incident_states = snow.states_db()
+                incidents_result = await snow.retrieve_incidents(user_profile)
+                incidents = incidents_result.get("incidents")
+                if incidents:
+                    message = "\n".join(
+                        [
+                            f'Incident {i.get("number")}: '
+                            f'"{i.get("short_description")}", '
+                            f'opened on {i.get("opened_at")} '
+                            f'{incident_states.get(i.get("incident_state"))}'
+                            for i in incidents
+                        ]
+                    )
+                else:
+                    message = f"{incidents_result.get('error')}"
+            except Exception as e:
+                logger.exception("The following exception occurred: %s", str(e))
+                message = (
+                    "Due to technical difficulties we are unable to service your request now. Sorry for the inconvenience"
                 )
-            else:
-                message = f"{incidents_result.get('error')}"
 
         dispatcher.utter_message(message)
         return []
@@ -223,22 +234,28 @@ class OpenIncidentForm(FormAction):
                 "ticket for you. Appreciate your enthusiasm though :)"
             )
         else:
-            result = await snow.create_incident( 
-                user_profile.get("id"),           
-                tracker.get_slot("incident_title"),
-                tracker.get_slot("problem_description"),
-                tracker.get_slot("priority")
-            )
-            incident_number = result.get("number")
-            if incident_number:
-                message = (
-                    f"Incident {incident_number} has been opened for you. "
-                    f"A support specialist will reach out to you soon."
+            try:
+                result = await snow.create_incident( 
+                    user_profile.get("id"),           
+                    tracker.get_slot("incident_title"),
+                    tracker.get_slot("problem_description"),
+                    tracker.get_slot("priority")
                 )
-            else:
+                incident_number = result.get("number")
+                if incident_number:
+                    message = (
+                        f"Incident {incident_number} has been opened for {user_profile.get('email')}. "
+                        f" A support specialist will reach out to you soon."
+                    )
+                else:
+                    message = (
+                        f"Something went wrong while opening an incident for you. "
+                        f"{result.get('error')}"
+                    )
+            except Exception as e:
+                logger.exception("The following exception occurred: %s", str(e))
                 message = (
-                    f"Something went wrong while opening an incident for you. "
-                    f"{result.get('error')}"
+                    "Due to technical difficulties we are unable to service your request now. Sorry for the inconvenience"
                 )
 
         dispatcher.utter_message(message)
